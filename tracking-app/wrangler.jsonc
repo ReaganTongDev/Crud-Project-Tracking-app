@@ -3,6 +3,9 @@
   "name": "tracking-app",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-02",
+  "vars": {
+    "JWT_SECRET": "c8f4b2e1a9d3f7e5b6c0d8a1f2e3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
+  },
   // "compatibility_flags": [
   //   "nodejs_compat"
   // ],

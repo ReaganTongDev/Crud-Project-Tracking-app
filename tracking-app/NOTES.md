@@ -22,6 +22,8 @@ This file tracks every instance where the AI generated incorrect code, violated 
 - [2026-09-02] [Stage 1] Initialized project repository and verification baseline.
 - [2026-09-02] [Stage 2] AI provided TOML configuration syntax (`[[d1_databases]]`) instead of checking project config type -> Corrected to JSONC array syntax (`"d1_databases": [...]`) in `wrangler.jsonc` and fixed missing trailing comma.
 - [2026-09-02] [Stage 2] `schema.sql` file not created in project root or failed path resolution on Windows -> Created `schema.sql` at root and used direct file flag `--file=schema.sql`.
+- [2026-09-02] [Stage 3] AI provided Unix Bash multiline curl commands (`\`) -> Incompatible with Windows PowerShell default alias (`Invoke-WebRequest`); corrected to `curl.exe` with escaped JSON quotes.
+
 
 ---
 
