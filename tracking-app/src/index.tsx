@@ -4,26 +4,26 @@ import { zValidator } from '@hono/zod-validator'
 import { sign, verify } from 'hono/jwt'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
 import { hashPassword, verifyPassword } from './lib/crypto'
-import { AuthSchema, Bindings, Variables, jsonError } from './lib/types'
+import { AuthSchema, Bindings, Variables, SuggestTagSchema, jsonError } from './lib/types'
 import { AuthView, ExpensesView } from './views/layout'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
 // --- Schemas ---
 
+
 export const CreateExpenseSchema = z.object({
-  // 建议前端统一以“分”或浮点数传输，此处假设输入为数字
   amount: z.number().positive('Amount must be positive'),
   remark: z.string().min(1, 'Remark is required').max(255),
   tag: z.string().max(50).optional(),
-  spent_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)'),
+  spent_at: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Invalid date format (YYYY-MM-DD)'),
 })
 
 export const UpdateExpenseSchema = z.object({
   amount: z.number().positive('Amount must be positive').optional(),
   remark: z.string().min(1).max(255).optional(),
   tag: z.string().max(50).nullable().optional(),
-  spent_at: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date format (YYYY-MM-DD)').optional(),
+  spent_at: z.string().regex(/^\d{4}-\d{2}-\d{2}/, 'Invalid date format (YYYY-MM-DD)').optional(),
 })
 
 export const ExpenseFilterSchema = z.object({
@@ -101,19 +101,21 @@ app.get('/', uiAuthMiddleware, async (c) => {
   const from = c.req.query('from') || undefined
   const to = c.req.query('to') || undefined
 
-  const { query, params } = buildExpenseQuery(userId, { tag, from, to })
+  const user = await c.env.DB.prepare('SELECT email FROM users WHERE id = ?')
+    .bind(userId)
+    .first<{ email: string }>()
 
-  // 使用 Promise.all 并行拉取用户信息、标签、明细列表与分析数据
-  const [user, { results: tagResults }, { results: expenses }, spendByDayRes, spendByTagRes, totalStats] = await Promise.all([
-    c.env.DB.prepare('SELECT email FROM users WHERE id = ?').bind(userId).first<{ email: string }>(),
-    c.env.DB.prepare('SELECT DISTINCT tag FROM expenses WHERE user_id = ? AND tag IS NOT NULL AND tag != "" ORDER BY tag ASC').bind(userId).all<{ tag: string }>(),
-    c.env.DB.prepare(query).bind(...params).all(),
-    c.env.DB.prepare('SELECT spent_at, SUM(amount) as total_amount FROM expenses WHERE user_id = ? GROUP BY spent_at ORDER BY spent_at DESC LIMIT 14').bind(userId).all<{ spent_at: string; total_amount: number }>(),
-    c.env.DB.prepare("SELECT COALESCE(tag, 'Uncategorized') as tag, SUM(amount) as total_amount FROM expenses WHERE user_id = ? GROUP BY tag ORDER BY total_amount DESC").bind(userId).all<{ tag: string; total_amount: number }>(),
-    c.env.DB.prepare('SELECT SUM(amount) as total_spent, COUNT(id) as total_count FROM expenses WHERE user_id = ?').bind(userId).first<{ total_spent: number | null; total_count: number }>()
-  ])
-
+  // Fetch unique available tags for current user
+  const { results: tagResults } = await c.env.DB.prepare(
+    'SELECT DISTINCT tag FROM expenses WHERE user_id = ? AND tag IS NOT NULL AND tag != "" ORDER BY tag ASC'
+  )
+    .bind(userId)
+    .all<{ tag: string }>()
   const availableTags = tagResults.map((r) => r.tag)
+
+  // Fetch filtered expenses
+  const { query, params } = buildExpenseQuery(userId, { tag, from, to })
+  const { results: expenses } = await c.env.DB.prepare(query).bind(...params).all()
 
   return c.html(
     <ExpensesView
@@ -121,12 +123,6 @@ app.get('/', uiAuthMiddleware, async (c) => {
       availableTags={availableTags}
       currentFilters={{ tag, from, to }}
       userEmail={user?.email ?? ''}
-      analytics={{
-        totalSpent: totalStats?.total_spent ?? 0,
-        totalCount: totalStats?.total_count ?? 0,
-        spendByTag: spendByTagRes.results,
-        spendByDay: spendByDayRes.results.reverse(), // 保证时间正序展示
-      }}
     />
   )
 })
@@ -330,7 +326,6 @@ app.post('/api/expenses', authMiddleware, zValidator('json', CreateExpenseSchema
   const { amount, remark, tag, spent_at } = c.req.valid('json')
   const id = crypto.randomUUID()
 
-  // 若前端 API 传的是元，请保持转换: Math.round(amount * 100)
   await c.env.DB.prepare(
     'INSERT INTO expenses (id, user_id, amount, remark, tag, spent_at) VALUES (?, ?, ?, ?, ?, ?)'
   )
@@ -417,60 +412,7 @@ app.delete('/api/expenses/:id', authMiddleware, async (c) => {
   return c.json({ success: true, data: { id } })
 })
 
-// 10. 聚合 API 端点 (优化为 Promise.all 并行查询)
-app.get('/api/analytics/summary', authMiddleware, async (c) => {
-  const userId = c.get('userId')
-
-  const [spendByDayRes, spendByTagRes, topExpensesRes, totalStats] = await Promise.all([
-    // 1. 每日支出聚合 (近 14 天)
-    c.env.DB.prepare(`
-      SELECT spent_at, SUM(amount) as total_amount
-      FROM expenses
-      WHERE user_id = ?
-      GROUP BY spent_at
-      ORDER BY spent_at DESC
-      LIMIT 14
-    `).bind(userId).all(),
-
-    // 2. 按标签聚合支出
-    c.env.DB.prepare(`
-      SELECT COALESCE(tag, 'Uncategorized') as tag, SUM(amount) as total_amount, COUNT(id) as count
-      FROM expenses
-      WHERE user_id = ?
-      GROUP BY tag
-      ORDER BY total_amount DESC
-    `).bind(userId).all(),
-
-    // 3. 最大单笔支出 Top 5
-    c.env.DB.prepare(`
-      SELECT id, remark, amount, tag, spent_at
-      FROM expenses
-      WHERE user_id = ?
-      ORDER BY amount DESC
-      LIMIT 5
-    `).bind(userId).all(),
-
-    // 4. 总计统计
-    c.env.DB.prepare(`
-      SELECT SUM(amount) as total_spent, COUNT(id) as total_count
-      FROM expenses
-      WHERE user_id = ?
-    `).bind(userId).first<{ total_spent: number | null; total_count: number }>(),
-  ])
-
-  return c.json({
-    success: true,
-    data: {
-      totalSpent: totalStats?.total_spent ?? 0,
-      totalCount: totalStats?.total_count ?? 0,
-      spendByDay: spendByDayRes.results.reverse(), // 正序方便绘制折线/柱状
-      spendByTag: spendByTagRes.results,
-      topExpenses: topExpensesRes.results,
-    },
-  })
-})
-
-// 11. AI 标签智能推荐接口 (已修复语法闭合错误)
+// Add this route in src/index.ts alongside other API routes
 app.post('/api/ai/suggest-tag', authMiddleware, async (c) => {
   let remark = ''
   try {
@@ -484,7 +426,7 @@ app.post('/api/ai/suggest-tag', authMiddleware, async (c) => {
     return c.json({ success: false, error: { message: 'Remark is required' } }, 400)
   }
 
-  // 1. 优先尝试 Cloudflare Workers AI
+  // 1. 优先尝试 Cloudflare Workers AI（需登录 Cloudflare 且已联网）
   if (c.env.AI) {
     try {
       const response: any = await c.env.AI.run('@cf/deepseek-ai/deepseek-r1-distill-qwen-32b', {
@@ -493,44 +435,42 @@ app.post('/api/ai/suggest-tag', authMiddleware, async (c) => {
         messages: [
           {
             role: 'system',
-            content:
-              'You are an expense tagging assistant. Classify the given expense into EXACTLY ONE of these standard categories: [Food, Transport, Shopping, Bills, Entertainment, Health, Travel, Other]. Rules: - Computer hardware, electronics, accessories, or daily goods (e.g., mouse, keyboard, monitor) MUST be tagged as Shopping. - Output ONLY the chosen category name. Nothing else.',
+            content: 'You are an expense tagging assistant. Classify the given expense into EXACTLY ONE of these standard categories: [Food, Transport, Shopping, Bills, Entertainment, Health, Travel, Other]. Rules: - Computer hardware, electronics, accessories, or daily goods (e.g., mouse, keyboard, monitor) MUST be tagged as Shopping. - Output ONLY the chosen category name. Nothing else..'
           },
           {
             role: 'user',
-            content: remark,
-          },
-        ],
+            content: remark
+          }
+        ]
       })
 
       let text = response?.response?.trim() || ''
 
-      // 过滤思考链
       text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim()
 
-      // 匹配预设的标准分类白名单
-      const validTags = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Travel', 'Other']
-      const words = text.match(/[a-zA-Z]+/g) || []
+    // 2. 匹配预设的标准分类白名单（从后往前找最符合的单词）
+    const validTags = ['Food', 'Transport', 'Shopping', 'Bills', 'Entertainment', 'Health', 'Travel', 'Other']
+    const words = text.match(/[a-zA-Z]+/g) || []
 
-      let matchedTag = ''
-      for (let i = words.length - 1; i >= 0; i--) {
-        const found = validTags.find((t) => t.toLowerCase() === words[i].toLowerCase())
-        if (found) {
-          matchedTag = found
-          break
-        }
+    let matchedTag = ''
+    for (let i = words.length - 1; i >= 0; i--) {
+      const found = validTags.find(t => t.toLowerCase() === words[i].toLowerCase())
+      if (found) {
+        matchedTag = found
+        break
       }
-
-      const finalTag = matchedTag || (words.length > 0 ? words[words.length - 1] : 'Shopping')
-      const cleanTag = finalTag.charAt(0).toUpperCase() + finalTag.slice(1).toLowerCase()
-
-      return c.json({ success: true, data: { tag: cleanTag } })
-    } catch (err) {
-      console.warn('Workers AI unavailable in local dev, using smart rule engine:', err)
     }
-  }
 
-  // 2. 本地离线/降级正则规则匹配
+    const finalTag = matchedTag || (words.length > 0 ? words[words.length - 1] : 'Shopping')
+    const cleanTag = finalTag.charAt(0).toUpperCase() + finalTag.slice(1).toLowerCase()
+
+    return c.json({ success: true, data: { tag: cleanTag } })
+  } catch (err) {
+    console.warn('Workers AI unavailable in local dev, using smart rule engine:', err)
+  }
+}
+
+  // 2. 本地离线开发智能规则匹配（覆盖日常记账场景）
   const lower = remark.toLowerCase()
   let tag = 'Other'
 

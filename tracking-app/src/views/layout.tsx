@@ -82,92 +82,11 @@ export const ExpensesView: FC<{
   availableTags: string[]
   currentFilters: { tag?: string; from?: string; to?: string }
   userEmail: string
-  analytics?: {
-    totalSpent: number
-    totalCount: number
-    spendByTag: { tag: string; total_amount: number }[]
-    spendByDay: { spent_at: string; total_amount: number }[]
-  }
-}> = ({ expenses, availableTags, currentFilters, userEmail, analytics }) => {
+}> = ({ expenses, availableTags, currentFilters, userEmail }) => {
   const today = new Date().toISOString().split('T')[0]
-
-  // 计算每日最大值用于柱状图比例缩放
-  const maxDaySpend = Math.max(...(analytics?.spendByDay.map((d) => d.total_amount) ?? [1]), 1)
-  const totalTagSpend = analytics?.totalSpent || 1
 
   return (
     <Layout title="Dashboard" userEmail={userEmail}>
-      {/* 顶部统计卡片 */}
-      {analytics && (
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem;">
-          <div class="card" style="margin: 0; padding: 1.25rem;">
-            <div style="color: #94a3b8; font-size: 0.85rem;">Total Spending</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: #38bdf8; font-family: monospace; margin-top: 0.25rem;">
-              ${(analytics.totalSpent / 100).toFixed(2)}
-            </div>
-          </div>
-          <div class="card" style="margin: 0; padding: 1.25rem;">
-            <div style="color: #94a3b8; font-size: 0.85rem;">Total Transactions</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: #f8fafc; font-family: monospace; margin-top: 0.25rem;">
-              {analytics.totalCount}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 图表区域：近 7 天趋势 & 标签支出分布 */}
-      {analytics && analytics.spendByDay && analytics.spendByDay.length > 0 && (
-        <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; margin-bottom: 2rem;">
-          {/* 近 7 天条形趋势 */}
-          <div class="card" style="margin: 0;">
-            <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: #cbd5e1;">Spend Trend (Recent Active Days)</h4>
-            <div style="height: 140px; display: flex; align-items: flex-end; gap: 8px; padding-top: 10px;">
-              {analytics.spendByDay.slice(-7).map((d) => {
-                const heightPercent = Math.max(8, Math.round((d.total_amount / maxDaySpend) * 100))
-                return (
-                  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end;">
-                    <span style="font-size: 0.65rem; color: #94a3b8; font-family: monospace; margin-bottom: 4px;">
-                      ${(d.total_amount / 100).toFixed(0)}
-                    </span>
-                    <div
-                      style={`width: 100%; background: #38bdf8; border-radius: 4px 4px 0 0; height: ${heightPercent}%; transition: height 0.3s;`}
-                      title={`${d.spent_at}: $${(d.total_amount / 100).toFixed(2)}`}
-                    ></div>
-                    <span style="font-size: 0.65rem; color: #64748b; margin-top: 4px; white-space: nowrap;">
-                      {d.spent_at.slice(5)}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          {/* 标签占比进度条 */}
-          <div class="card" style="margin: 0;">
-            <h4 style="margin: 0 0 1rem 0; font-size: 0.95rem; color: #cbd5e1;">Top Tags</h4>
-            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
-              {analytics.spendByTag.slice(0, 4).map((t) => {
-                const pct = Math.round((t.total_amount / totalTagSpend) * 100)
-                return (
-                  <div>
-                    <div style="display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 0.25rem;">
-                      <span>{t.tag}</span>
-                      <span style="color: #94a3b8; font-family: monospace;">
-                        ${(t.total_amount / 100).toFixed(2)} ({pct}%)
-                      </span>
-                    </div>
-                    <div style="background: #0f172a; height: 6px; border-radius: 3px; overflow: hidden;">
-                      <div style={`background: #38bdf8; height: 100%; width: ${pct}%;`}></div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 添加表单 */}
       <div class="card">
         <h3 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem;">Add New Expense</h3>
         <form method="post" action="/expenses" class="form-grid" id="expense-form">
@@ -199,6 +118,7 @@ export const ExpensesView: FC<{
               <button
                 type="button"
                 id="suggest-btn"
+                onclick="handleSuggest()"
                 style="background: none; border: none; color: #38bdf8; font-size: 0.75rem; padding: 0; cursor: pointer; text-decoration: underline;"
               >
                 ✨ Suggest
@@ -231,6 +151,7 @@ export const ExpensesView: FC<{
           <button type="submit">Add</button>
         </form>
 
+        {/* Suggestion prompt banner */}
         <div
           id="ai-suggestion-box"
           style="display: none; margin-top: 0.75rem; padding: 0.5rem 0.75rem; background: #0f172a; border-radius: 6px; font-size: 0.85rem; align-items: center; gap: 0.5rem;"
@@ -238,6 +159,7 @@ export const ExpensesView: FC<{
           <span style="color: #94a3b8;">Suggested:</span>
           <span
             id="ai-suggested-tag"
+            onclick="applyTag()"
             style="background: #334155; color: #38bdf8; padding: 0.2rem 0.5rem; border-radius: 4px; font-weight: 600; cursor: pointer;"
             title="Click to apply"
           ></span>
@@ -245,7 +167,6 @@ export const ExpensesView: FC<{
         </div>
       </div>
 
-      {/* 交易列表与筛选 */}
       <div class="card">
         <h3 style="margin-top: 0; margin-bottom: 1rem; font-size: 1.1rem;">Transactions</h3>
 
@@ -320,50 +241,56 @@ export const ExpensesView: FC<{
         )}
       </div>
 
-      <script>{`
-        const suggestBtn = document.getElementById('suggest-btn');
-        const remarkInput = document.getElementById('remark-input');
-        const tagInput = document.getElementById('tag-input');
-        const box = document.getElementById('ai-suggestion-box');
-        const chip = document.getElementById('ai-suggested-tag');
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            async function handleSuggest() {
+              const btn = document.getElementById('suggest-btn');
+              const remarkInput = document.getElementById('remark-input');
+              const box = document.getElementById('ai-suggestion-box');
+              const chip = document.getElementById('ai-suggested-tag');
 
-        if (suggestBtn) {
-          suggestBtn.addEventListener('click', async () => {
-            const remark = remarkInput.value.trim();
-            if (!remark) {
-              alert('Please enter a remark first');
-              return;
-            }
-            suggestBtn.innerText = 'Thinking...';
-            suggestBtn.disabled = true;
-
-            try {
-              const res = await fetch('/api/ai/suggest-tag', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ remark })
-              });
-              const data = await res.json();
-              if (data.success && data.data.tag) {
-                chip.innerText = data.data.tag;
-                box.style.display = 'flex';
+              const remark = remarkInput.value.trim();
+              if (!remark) {
+                alert('Please enter a remark first');
+                return;
               }
-            } catch (e) {
-              console.error(e);
-            } finally {
-              suggestBtn.innerText = '✨ Suggest';
-              suggestBtn.disabled = false;
-            }
-          });
-        }
 
-        if (chip) {
-          chip.addEventListener('click', () => {
-            tagInput.value = chip.innerText;
-            box.style.display = 'none';
-          });
-        }
-      `}</script>
+              btn.innerText = 'Thinking...';
+              btn.disabled = true;
+
+              try {
+                const res = await fetch('/api/ai/suggest-tag', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ remark })
+                });
+                const data = await res.json();
+                if (data.success && data.data && data.data.tag) {
+                  chip.innerText = data.data.tag;
+                  box.style.display = 'flex';
+                } else {
+                  alert('Could not suggest a tag for this expense');
+                }
+              } catch (e) {
+                console.error(e);
+                alert('Network error while requesting suggestion');
+              } finally {
+                btn.innerText = '✨ Suggest';
+                btn.disabled = false;
+              }
+            }
+
+            function applyTag() {
+              const tagInput = document.getElementById('tag-input');
+              const chip = document.getElementById('ai-suggested-tag');
+              const box = document.getElementById('ai-suggestion-box');
+              tagInput.value = chip.innerText;
+              box.style.display = 'none';
+            }
+          `
+        }}
+      />
     </Layout>
   )
 }
