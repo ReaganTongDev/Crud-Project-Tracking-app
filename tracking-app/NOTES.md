@@ -28,6 +28,7 @@ This file tracks every instance where the AI generated incorrect code, violated 
 - [2026-09-02] [Stage 5] `schema.sql` append failed to update existing local D1 SQLite schema -> Applied explicit `ALTER TABLE` via `wrangler d1 execute --command`.
 - [2026-09-02] [Stage 6] AI introduced `SuggestTagSchema` route validation in `src/index.tsx` without including it in the named import list -> Corrected import statement in `src/index.tsx`.
 - [2026-09-02] [Stage 7] Summed all aggregations directly inside D1 SQL (`SUM`, `GROUP BY`) rather than in-memory JS, rendering charts via SSR pure CSS/SVG without extra libraries.
+- [2026-09-02] [Stretch: MCP] Implemented `agents/mcp` server tools (`query_expenses`, `get_spending_summary`) running behind `authMiddleware` to strictly scope queries by token `userId`.
 
 
 ---
@@ -40,8 +41,8 @@ This file tracks every instance where the AI generated incorrect code, violated 
 - [x] **Stage 4: Usable UI** — `hono/jsx` SSR pages, expense list, add/edit modals/forms, delete confirmation, empty state.
 - [x] **Stage 5: Tags + filters** — Many-to-many / tag column, date range & tag filtering in D1 SQL.
 - [x] **Stage 6: AI tag suggestion** — Workers AI binding (Llama 3.1 8B), suggestion-only UI flow (never auto-applies).
-- [ ] **Stage 7: Aggregates + charts** — SQL aggregate queries (spend per day, per tag, top expenses), SVG chart rendering.
-- [ ] **Stage 8: Polish** — Responsive UX pass, keyboard shortcuts, final performance & security audit.
-- [ ] **Stretch: MCP Server** — Cloudflare `agents` package integration for spending queries.
+- [x] **Stage 7: Aggregates + charts** — SQL aggregate queries (spend per day, per tag, top expenses), SVG chart rendering.
+- [x] **Stage 8: Polish** — Responsive UX pass, keyboard shortcuts, final performance & security audit.
+- [x] **Stretch: MCP Server** — Cloudflare `agents` package integration for spending queries.
 
 
