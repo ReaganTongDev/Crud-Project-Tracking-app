@@ -25,6 +25,9 @@ This file tracks every instance where the AI generated incorrect code, violated 
 - [2026-09-02] [Stage 3] AI provided Unix Bash multiline curl commands (`\`) -> Incompatible with Windows PowerShell default alias (`Invoke-WebRequest`); corrected to `curl.exe` with escaped JSON quotes.
 - [2026-09-02] [Stage 4] Added `hono/jsx` server-rendered UI while ensuring integer cent conversion (`Math.round(amount * 100)`) on web form POSTs.
 - [2026-09-02] [Stage 5] Added `tag` column to `expenses` table, dynamic SQL parameterization for tag and date bounds, and SSR filter toolbar.
+- [2026-09-02] [Stage 5] `schema.sql` append failed to update existing local D1 SQLite schema -> Applied explicit `ALTER TABLE` via `wrangler d1 execute --command`.
+- [2026-09-02] [Stage 6] AI introduced `SuggestTagSchema` route validation in `src/index.tsx` without including it in the named import list -> Corrected import statement in `src/index.tsx`.
+- [2026-09-02] [Stage 7] Summed all aggregations directly inside D1 SQL (`SUM`, `GROUP BY`) rather than in-memory JS, rendering charts via SSR pure CSS/SVG without extra libraries.
 
 
 ---
@@ -36,7 +39,7 @@ This file tracks every instance where the AI generated incorrect code, violated 
 - [x] **Stage 3: Expense CRUD** — D1 expenses schema, integer cents validation, unified JSON error shape, curl verified.
 - [x] **Stage 4: Usable UI** — `hono/jsx` SSR pages, expense list, add/edit modals/forms, delete confirmation, empty state.
 - [x] **Stage 5: Tags + filters** — Many-to-many / tag column, date range & tag filtering in D1 SQL.
-- [ ] **Stage 6: AI tag suggestion** — Workers AI binding (Llama 3.1 8B), suggestion-only UI flow (never auto-applies).
+- [x] **Stage 6: AI tag suggestion** — Workers AI binding (Llama 3.1 8B), suggestion-only UI flow (never auto-applies).
 - [ ] **Stage 7: Aggregates + charts** — SQL aggregate queries (spend per day, per tag, top expenses), SVG chart rendering.
 - [ ] **Stage 8: Polish** — Responsive UX pass, keyboard shortcuts, final performance & security audit.
 - [ ] **Stretch: MCP Server** — Cloudflare `agents` package integration for spending queries.
