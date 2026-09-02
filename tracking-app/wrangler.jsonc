@@ -1,7 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "tracking-app",
-  "main": "src/index.ts",
+  "main": "src/index.tsx",
   "compatibility_date": "2026-09-02",
   "vars": {
     "JWT_SECRET": "c8f4b2e1a9d3f7e5b6c0d8a1f2e3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1"
@@ -24,10 +24,10 @@
       "database_name": "expense-db",
       "database_id": "091eb806-ae7b-449a-b07e-bde9934d1deb"
     }
-  ]
-  // "ai": {
-  //   "binding": "AI"
-  // },
+  ],
+    "ai": {
+      "binding": "AI"
+    },
   // "observability": {
   //   "enabled": true,
   //   "head_sampling_rate": 1
