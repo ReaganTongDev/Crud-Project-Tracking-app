@@ -9,8 +9,8 @@
   "dependencies": {
     "@cloudflare/agents": "^0.0.16",
     "@hono/zod-validator": "^0.9.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "agents": "^0.22.0",
+    "bcryptjs-webcrypto": "^0.0.1",
     "hono": "^4.13.5",
     "zod": "^4.5.4"
   },
