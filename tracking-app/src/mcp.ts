@@ -1,40 +1,50 @@
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 
-export function createExpenseMcpServer(db: D1Database, userId: string) {
-  const server = new McpServer({
-    name: 'Expense Tracker MCP',
-    version: '1.0.0',
-  })
-
-  // Tool 1: Query raw expenses
-  server.tool(
-    'query_expenses',
+export function createExpenseMcpHandler(db: D1Database, userId: string) {
+  const tools = [
     {
-      tag: z.string().optional().describe('Filter by expense tag/category'),
-      from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('Start date (YYYY-MM-DD)'),
-      to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('End date (YYYY-MM-DD)'),
-      limit: z.number().int().min(1).max(50).default(20).describe('Max records to return'),
+      name: 'query_expenses',
+      description: 'Query expenses with optional filters',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tag: { type: 'string', description: 'Filter by expense tag/category' },
+          from: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'Start date (YYYY-MM-DD)' },
+          to: { type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$', description: 'End date (YYYY-MM-DD)' },
+          limit: { type: 'number', minimum: 1, maximum: 50, default: 20, description: 'Max records to return' }
+        }
+      }
     },
-    async ({ tag, from, to, limit }: { tag?: string; from?: string; to?: string; limit?: number }) => {
+    {
+      name: 'get_spending_summary',
+      description: 'Get spending summary by category',
+      inputSchema: {
+        type: 'object',
+        properties: {}
+      }
+    }
+  ]
+
+  async function handleToolCall(toolName: string, args: any) {
+    if (toolName === 'query_expenses') {
       let query = 'SELECT id, amount, remark, tag, spent_at FROM expenses WHERE user_id = ?'
       const params: any[] = [userId]
 
-      if (tag) {
+      if (args.tag) {
         query += ' AND tag = ?'
-        params.push(tag)
+        params.push(args.tag)
       }
-      if (from) {
+      if (args.from) {
         query += ' AND spent_at >= ?'
-        params.push(from)
+        params.push(args.from)
       }
-      if (to) {
+      if (args.to) {
         query += ' AND spent_at <= ?'
-        params.push(to)
+        params.push(args.to)
       }
 
       query += ' ORDER BY spent_at DESC LIMIT ?'
-      params.push(limit ?? 20)
+      params.push(args.limit ?? 20)
 
       const { results } = await db.prepare(query).bind(...params).all()
 
@@ -52,13 +62,8 @@ export function createExpenseMcpServer(db: D1Database, userId: string) {
         ],
       }
     }
-  )
 
-  // Tool 2: Summary
-  server.tool(
-    'get_spending_summary',
-    {},
-    async () => {
+    if (toolName === 'get_spending_summary') {
       const { results: byTag } = await db.prepare(`
         SELECT COALESCE(tag, 'Uncategorized') as tag, SUM(amount) as total_cents, COUNT(id) as count
         FROM expenses
@@ -92,7 +97,52 @@ export function createExpenseMcpServer(db: D1Database, userId: string) {
         ],
       }
     }
-  )
 
-  return server
+    throw new Error(`Unknown tool: ${toolName}`)
+  }
+
+  async function handleMcpRequest(request: Request): Promise<Response> {
+    const body = await request.json()
+    const { jsonrpc, method, params, id } = body
+
+    if (method === 'tools/list') {
+      return Response.json({
+        jsonrpc: '2.0',
+        result: { tools },
+        id
+      })
+    }
+
+    if (method === 'tools/call') {
+      const { name, arguments: args } = params
+      try {
+        const result = await handleToolCall(name, args)
+        return Response.json({
+          jsonrpc: '2.0',
+          result,
+          id
+        })
+      } catch (error: any) {
+        return Response.json({
+          jsonrpc: '2.0',
+          error: {
+            code: -32000,
+            message: error.message
+          },
+          id
+        })
+      }
+    }
+
+    return Response.json({
+      jsonrpc: '2.0',
+      error: {
+        code: -32601,
+        message: 'Method not found'
+      },
+      id
+    })
+  }
+
+  return handleMcpRequest
 }

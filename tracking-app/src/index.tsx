@@ -3,10 +3,10 @@ import { z } from 'zod'
 import { zValidator } from '@hono/zod-validator'
 import { sign, verify } from 'hono/jwt'
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie'
-import { hashPassword, verifyPassword } from './lib/crypto'
+import { hashPassword, isLegacyPasswordHash, verifyPassword } from './lib/crypto'
 import { AuthSchema, Bindings, Variables, jsonError } from './lib/types'
 import { AuthView, ExpensesView } from './views/layout'
-import { createExpenseMcpServer } from './mcp'
+import { createExpenseMcpHandler } from './mcp'
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>()
 
@@ -73,6 +73,25 @@ const uiAuthMiddleware = async (c: any, next: any) => {
   } catch {
     return c.redirect('/login')
   }
+}
+
+async function authenticateUser(db: D1Database, email: string, password: string) {
+  const user = await db
+    .prepare('SELECT id, password_hash FROM users WHERE email = ?')
+    .bind(email)
+    .first<{ id: string; password_hash: string }>()
+
+  if (!user) return null
+
+  const isValid = await verifyPassword(password, user.password_hash)
+  if (!isValid) return null
+
+  if (isLegacyPasswordHash(user.password_hash)) {
+    const { hash } = await hashPassword(password)
+    await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').bind(hash, user.id).run()
+  }
+
+  return user
 }
 
 // Dynamic Filter Query Builder
@@ -158,8 +177,8 @@ app.get('/', uiAuthMiddleware, async (c) => {
 // MCP Endpoint (✅ 独立注册在最外层)
 app.all('/mcp/*', authMiddleware, async (c) => {
   const userId = c.get('userId')
-  const server = createExpenseMcpServer(c.env.DB, userId)
-  return (server as any).handleRequest(c.req.raw)
+  const handler = createExpenseMcpHandler(c.env.DB, userId)
+  return handler(c.req.raw)
 })
 
 // Auth Pages (HTML)
@@ -172,11 +191,8 @@ app.post('/auth/login', async (c) => {
   const email = String(body.email || '')
   const password = String(body.password || '')
 
-  const user = await c.env.DB.prepare('SELECT id, password_hash, salt FROM users WHERE email = ?')
-    .bind(email)
-    .first<{ id: string; password_hash: string; salt: string }>()
-
-  if (!user || !(await verifyPassword(password, user.password_hash, user.salt))) {
+  const user = await authenticateUser(c.env.DB, email, password)
+  if (!user) {
     return c.html(<AuthView error="Invalid email or password" />)
   }
 
@@ -212,9 +228,9 @@ app.post('/auth/register', async (c) => {
   }
 
   const id = crypto.randomUUID()
-  const { hash, salt } = await hashPassword(password)
-  await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, salt) VALUES (?, ?, ?, ?)')
-    .bind(id, email, hash, salt)
+  const { hash } = await hashPassword(password)
+  await c.env.DB.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)')
+    .bind(id, email, hash)
     .run()
 
   const token = await sign(
@@ -293,10 +309,10 @@ app.post('/api/auth/register', zValidator('json', AuthSchema), async (c) => {
   }
 
   const id = crypto.randomUUID()
-  const { hash, salt } = await hashPassword(password)
+  const { hash } = await hashPassword(password)
 
-  await c.env.DB.prepare('INSERT INTO users (id, email, password_hash, salt) VALUES (?, ?, ?, ?)')
-    .bind(id, email, hash, salt)
+  await c.env.DB.prepare('INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)')
+    .bind(id, email, hash)
     .run()
 
   return c.json({ success: true, data: { id, email } }, 201)
@@ -306,16 +322,8 @@ app.post('/api/auth/register', zValidator('json', AuthSchema), async (c) => {
 app.post('/api/auth/login', zValidator('json', AuthSchema), async (c) => {
   const { email, password } = c.req.valid('json')
 
-  const user = await c.env.DB.prepare('SELECT id, password_hash, salt FROM users WHERE email = ?')
-    .bind(email)
-    .first<{ id: string; password_hash: string; salt: string }>()
-
+  const user = await authenticateUser(c.env.DB, email, password)
   if (!user) {
-    return c.json(jsonError('INVALID_CREDENTIALS', 'Invalid email or password'), 401)
-  }
-
-  const isValid = await verifyPassword(password, user.password_hash, user.salt)
-  if (!isValid) {
     return c.json(jsonError('INVALID_CREDENTIALS', 'Invalid email or password'), 401)
   }
 

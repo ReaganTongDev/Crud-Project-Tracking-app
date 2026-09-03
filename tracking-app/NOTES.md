@@ -30,6 +30,11 @@ This file tracks every instance where the AI generated incorrect code, violated 
 - [2026-09-02] [Stage 7] Summed all aggregations directly inside D1 SQL (`SUM`, `GROUP BY`) rather than in-memory JS, rendering charts via SSR pure CSS/SVG without extra libraries.
 - [2026-09-02] [Stretch: MCP] Implemented `agents/mcp` server tools (`query_expenses`, `get_spending_summary`) running behind `authMiddleware` to strictly scope queries by token `userId`.
 
+1. AI placed route registrations (`app.all('/mcp/*')`) inside an active route handler (`app.get('/')`), causing a runtime crash: "Can not add a route since the matcher is already built".
+2. AI imported `McpServer` from non-existent subpaths (`agents/mcp` and `@cloudflare/agents/mcp`) instead of the official `@modelcontextprotocol/sdk/server/mcp.js`.
+3. AI omitted explicit argument types on the Zod tool execution callback, causing TypeScript implicit-any compiler errors (`ts(7031)`).
+4. AI generated glowing `box-shadow` spreads on the AI suggestion pill instead of crisp background/border color brightening.
+5. AI initially missed the empty-state conditional check when rendering transaction graphs, causing page render breaks when production D1 was unseeded.
 
 ---
 

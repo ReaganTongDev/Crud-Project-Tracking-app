@@ -1,21 +1,32 @@
-const ITERATIONS = 100_000
-const KEY_LEN = 32
-const DIGEST = 'SHA-256'
+import bcrypt from 'bcryptjs-webcrypto'
 
-export async function hashPassword(password: string): Promise<{ hash: string; salt: string }> {
-  const saltBytes = crypto.getRandomValues(new Uint8Array(16))
-  const salt = Array.from(saltBytes).map(b => b.toString(16).padStart(2, '0')).join('')
-  
-  const hash = await deriveHash(password, salt)
-  return { hash, salt }
+const ROUNDS = 12
+const LEGACY_PREFIX = 'pbkdf2$'
+
+export async function hashPassword(password: string): Promise<{ hash: string }> {
+  const hash = await bcrypt.hash(password, ROUNDS)
+  return { hash }
 }
 
-export async function verifyPassword(password: string, hash: string, salt: string): Promise<boolean> {
-  const derived = await deriveHash(password, salt)
-  return derived === hash
+export function isLegacyPasswordHash(stored: string): boolean {
+  return stored.startsWith(LEGACY_PREFIX)
 }
 
-async function deriveHash(password: string, saltHex: string): Promise<string> {
+export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (isLegacyPasswordHash(stored)) {
+    const parts = stored.split('$')
+    if (parts.length !== 3 || !parts[1] || !parts[2]) return false
+    return verifyLegacyPassword(password, parts[2], parts[1])
+  }
+
+  return await bcrypt.compare(password, stored)
+}
+
+async function verifyLegacyPassword(password: string, hash: string, salt: string): Promise<boolean> {
+  const ITERATIONS = 100_000
+  const KEY_LEN = 32
+  const DIGEST = 'SHA-256'
+
   const enc = new TextEncoder()
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
@@ -25,7 +36,7 @@ async function deriveHash(password: string, saltHex: string): Promise<string> {
     ['deriveBits']
   )
 
-  const saltBytes = new Uint8Array(saltHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16)))
+  const saltBytes = new Uint8Array(salt.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16)))
 
   const derivedBits = await crypto.subtle.deriveBits(
     {
@@ -38,7 +49,9 @@ async function deriveHash(password: string, saltHex: string): Promise<string> {
     KEY_LEN * 8
   )
 
-  return Array.from(new Uint8Array(derivedBits))
-    .map(b => b.toString(16).padStart(2, '0'))
+  const derived = Array.from(new Uint8Array(derivedBits))
+    .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
+
+  return derived === hash
 }
